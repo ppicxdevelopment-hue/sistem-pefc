@@ -37,13 +37,6 @@ if not st.session_state["akses_diberikan"]:
     # sampai PIN yang dimasukkan benar.
     st.stop() 
 
-# ==========================================
-# 1. KONFIGURASI KONEKSI GOOGLE SHEETS
-# ==========================================
-st.set_page_config(page_title="Generator Kode PEFC", layout="wide")
-st.title("🏭 Sistem Request Kode PEFC (Online Google Sheets)")
-
-
 import streamlit as st
 import pandas as pd
 import math
