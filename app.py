@@ -12,6 +12,52 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 # ==========================================
+# 0. SISTEM KEAMANAN PIN PABRIK
+# ==========================================
+# Silakan ganti angka ini dengan PIN rahasia untuk tim Anda
+PIN_RAHASIA = "2026" 
+
+if "akses_diberikan" not in st.session_state:
+    st.session_state["akses_diberikan"] = False
+
+if not st.session_state["akses_diberikan"]:
+    st.title("🔒 Area Terbatas Pabrik")
+    st.info("Silakan masukkan PIN akses untuk menggunakan sistem Request Kode PEFC.")
+    
+    pin_input = st.text_input("Masukkan PIN:", type="password")
+    
+    if st.button("Buka Kunci Sistem", type="primary"):
+        if pin_input == PIN_RAHASIA:
+            st.session_state["akses_diberikan"] = True
+            st.rerun()
+        else:
+            st.error("❌ PIN Salah! Akses ditolak.")
+            
+    # Kode st.stop() ini sangat penting agar kode di bawahnya tidak dijalankan
+    # sampai PIN yang dimasukkan benar.
+    st.stop() 
+
+# ==========================================
+# 1. KONFIGURASI KONEKSI GOOGLE SHEETS
+# ==========================================
+st.set_page_config(page_title="Generator Kode PEFC", layout="wide")
+st.title("🏭 Sistem Request Kode PEFC (Online Google Sheets)")
+
+
+import streamlit as st
+import pandas as pd
+import math
+import os
+import io
+import json
+from datetime import datetime
+import openpyxl
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+
+# ==========================================
 # 1. KONFIGURASI KONEKSI GOOGLE SHEETS
 # ==========================================
 st.set_page_config(page_title="Generator Kode PEFC", layout="wide")
