@@ -3,6 +3,7 @@ import pandas as pd
 import math
 import os
 import io
+import json
 from datetime import datetime
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
@@ -31,7 +32,13 @@ def get_gsheet_client():
         "https://www.googleapis.com/auth/drive"
     ]
     try:
-        creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_PATH, scope)
+        # Deteksi apakah aplikasi berjalan di Cloud (mencari rahasia) atau di Laptop (lokal)
+        if "GOOGLE_CREDENTIALS" in st.secrets:
+            creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        else:
+            creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_PATH, scope)
+            
         client = gspread.authorize(creds)
         return client
     except Exception as e:
@@ -213,7 +220,7 @@ tab_request, tab_report, tab_revisi, tab_stok_masuk, tab_dashboard, tab_admin = 
     "📝 Request PRO", "🔍 Report & Export", "✏️ Revisi PRO", "📦 Terima Stok", "📊 Dashboard Stok", "⚙️ Admin & Reset"
 ])
 
-# ----------------- TAB 1: REQUEST (DENGAN SPINNER) -----------------
+# ----------------- TAB 1: REQUEST -----------------
 with tab_request:
     with st.sidebar:
         st.header("📋 Form Input PRO")
@@ -227,14 +234,13 @@ with tab_request:
             claim_pefc = st.selectbox("Claim PEFC", ["PEFC CERTIFIED", "70% PEFC CERTIFIED"])
             req_tonase = st.number_input("Request Tonase (Kg)", min_value=1.0, value=1000.0, step=100.0)
             claim_eudr = st.radio("Claim EUDR?", ["Tidak", "Ya"])
-            
             btn_generate = st.form_submit_button("🚀 Generate Kode PEFC", type="primary")
 
     if btn_generate:
         if no_pro == "":
             st.warning("⚠️ Harap isi 'No PRO' terlebih dahulu.")
         else:
-            with st.spinner("⏳ Menghubungkan ke Google Sheets & memproses alokasi FIFO..."):
+            with st.spinner("⏳ Menghubungkan ke Google Sheets & memproses alokasi..."):
                 df_log_cek = get_all_log_gspread(SHEET_LOG)
                 is_duplicate = False
                 if not df_log_cek.empty and 'No_PRO' in df_log_cek.columns:
@@ -261,30 +267,24 @@ with tab_request:
                         else:
                             kode_bahan_terpakai.sort()
                             while len(kode_bahan_terpakai) < 4: kode_bahan_terpakai.append("00R")
-                            
                             nomor_urut = get_next_sequence(tgl_pro.strftime('%y%m'))
                             kode_pefc_final = f"{kode_bahan_terpakai[0]}-{kode_bahan_terpakai[1]}-{kode_bahan_terpakai[2]}-{kode_bahan_terpakai[3]}-{nomor_urut}{tgl_pro.strftime('%y')}"
                             
                             st.success(f"**KODE PEFC GENERATED (ONLINE):** {kode_pefc_final}")
-                            
                             try:
                                 for item in semua_alokasi:
                                     batch_mask = df_stok_master['Batch'].astype(str) == str(item['Batch'])
                                     current_q = float(df_stok_master.loc[batch_mask, 'Quantity (kg)'].values[0])
                                     current_b = float(df_stok_master.loc[batch_mask, 'Qty BAL'].values[0])
-                                    
                                     df_stok_master.loc[batch_mask, 'Quantity (kg)'] = max(0.0, current_q - item['Kg_Terpakai'])
                                     df_stok_master.loc[batch_mask, 'Qty BAL'] = max(0, current_b - item['Bale_Terpakai'])
-                                    
                                 save_stock_gspread(df_stok_master)
-                                
                                 log_row = [{
                                     "No_PRO": str(no_pro), "Tanggal": tgl_pro.strftime('%Y-%m-%d'),
                                     "Requester": str(requester), "Customer": str(customer),
                                     "Kode_PEFC": str(kode_pefc_final), "Tonase": float(req_tonase)
                                 }]
                                 append_log_gspread_strict(SHEET_LOG, log_row)
-                                
                                 detail_rows = []
                                 for item in semua_alokasi:
                                     item_copy = item.copy()
@@ -293,7 +293,6 @@ with tab_request:
                                     item_copy['Kode_PEFC'] = str(kode_pefc_final)
                                     detail_rows.append(item_copy)
                                 append_log_gspread_strict(SHEET_DETAIL, detail_rows)
-                                
                                 st.info(f"✨ Mutasi berhasil disimpan secara online ke Google Sheets!")
                             except Exception as e:
                                 st.error(f"❌ GAGAL menyimpan ke Google Sheets: {e}")
@@ -328,7 +327,7 @@ with tab_report:
             output_report.seek(0)
             st.download_button("💾 Simpan File Excel", data=output_report, file_name=f"Report_Online_{datetime.now().strftime('%Y%m%d')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-# ----------------- TAB 3: REVISI PRO (DENGAN SPINNER) -----------------
+# ----------------- TAB 3: REVISI PRO -----------------
 with tab_revisi:
     st.header("✏️ Revisi & Penyesuaian Transaksi")
     jenis_revisi = st.selectbox("Pilih Jenis Revisi:", [
@@ -336,7 +335,6 @@ with tab_revisi:
         "2. Batalkan / Hapus Transaksi PRO", 
         "3. Update Hasil Aktual (Smart Penyesuaian +/- Stok)"
     ])
-    
     rev_no_pro = st.text_input("Masukkan No PRO yang ingin direvisi:", key="input_revisi_pro_clean")
     
     df_log_all = get_all_log_gspread(SHEET_LOG)
@@ -413,10 +411,8 @@ with tab_revisi:
                                 df_stok_master.loc[batch_mask, 'Quantity (kg)'] = float(df_stok_master.loc[batch_mask, 'Quantity (kg)'].values[0]) + float(row['Kg_Terpakai'])
                                 df_stok_master.loc[batch_mask, 'Qty BAL'] = int(df_stok_master.loc[batch_mask, 'Qty BAL'].values[0]) + int(row['Bale_Terpakai'])
                         save_stock_gspread(df_stok_master)
-                        
                         df_detail_sisa = df_detail_all[df_detail_all['No_PRO'].astype(str) != str(rev_no_pro)]
                         overwrite_log_gspread(SHEET_DETAIL, df_detail_sisa)
-                        
                         df_log_sisa = df_log_all[df_log_all['No_PRO'].astype(str) != str(rev_no_pro)]
                         overwrite_log_gspread(SHEET_LOG, df_log_sisa)
                         st.success(f"✅ Transaksi **{rev_no_pro}** berhasil dibatalkan.")
@@ -467,7 +463,6 @@ with tab_revisi:
                                 kembali_ebkp -= amt
                                 
                             save_stock_gspread(df_stok_master)
-                            
                             customer_lama = hist_pro['Customer'].iloc[0] if 'Customer' in hist_pro.columns else "Unknown"
                             kode_pefc_lama = hist_pro['Kode_PEFC'].iloc[0]
                             log_refund = [{
@@ -478,7 +473,7 @@ with tab_revisi:
                             append_log_gspread_strict(SHEET_LOG, log_refund)
                             st.success(f"✅ Refund aktual sebesar **{refund_tonase} Kg** berhasil dikembalikan.")
 
-# ----------------- TAB 4: TERIMA STOK (DENGAN SPINNER) -----------------
+# ----------------- TAB 4: TERIMA STOK -----------------
 with tab_stok_masuk:
     st.header("📦 Form Kedatangan Bahan Baku Baru (Online)")
     with st.form("form_tambah_stok_online"):
@@ -546,11 +541,14 @@ with tab_admin:
     konfirmasi_reset = st.checkbox("Saya yakin ingin mereset log transaksi online.")
     if st.button("🚨 Eksekusi Reset Log Online", type="primary"):
         with st.spinner("⏳ Mengosongkan log transaksi..."):
-            try:
-                client = get_gsheet_client()
-                if client:
-                    client.open(SHEET_LOG).sheet1.clear()
-                    client.open(SHEET_DETAIL).sheet1.clear()
-                    st.success("✅ Log transaksi online berhasil dikosongkan.")
-            except Exception as e:
-                st.error(f"❌ Gagal mereset: {e}")
+            if not konfirmasi_reset:
+                st.error("Centang kotak konfirmasi terlebih dahulu!")
+            else:
+                try:
+                    client = get_gsheet_client()
+                    if client:
+                        client.open(SHEET_LOG).sheet1.clear()
+                        client.open(SHEET_DETAIL).sheet1.clear()
+                        st.success("✅ Log transaksi online berhasil dikosongkan.")
+                except Exception as e:
+                    st.error(f"❌ Gagal mereset: {e}")
