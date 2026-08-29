@@ -372,7 +372,6 @@ with tab_revisi:
                             append_log_gspread_strict(SHEET_LOG, log_row)
                             st.success(f"✅ Penambahan {tambah_tonase} Kg berhasil dipotong dari batch yang sama.")
 
-        # OPSI 2 DIPERBAIKI (TIDAK LAGI MENGHAPUS ROW)
         elif jenis_revisi.startswith("2."):
             if st.button("🗑️ Batalkan PRO & Kembalikan Stok", type="primary"):
                 with st.spinner("⏳ Membatalkan transaksi & mencatat riwayat minus..."):
@@ -382,34 +381,23 @@ with tab_revisi:
                     elif total_req_saat_ini <= 0:
                         st.warning("⚠️ PRO ini sudah pernah dibatalkan (Total Request saat ini 0).")
                     else:
-                        # Hitung pemakaian bersih tiap batch
                         net_detail = hist_pro.groupby(['Tipe_Pulp', 'Batch', 'Desc', 'Kode_Bahan'])[['Kg_Terpakai', 'Bale_Terpakai']].sum().reset_index()
                         detail_reversals = []
-                        
                         for idx, row in net_detail.iterrows():
                             if row['Kg_Terpakai'] > 0:
                                 batch_mask = df_stok_master['Batch'].astype(str) == str(row['Batch'])
                                 if not df_stok_master[batch_mask].empty:
                                     df_stok_master.loc[batch_mask, 'Quantity (kg)'] = float(df_stok_master.loc[batch_mask, 'Quantity (kg)'].values[0]) + float(row['Kg_Terpakai'])
                                     df_stok_master.loc[batch_mask, 'Qty BAL'] = int(df_stok_master.loc[batch_mask, 'Qty BAL'].values[0]) + int(row['Bale_Terpakai'])
-                                
                                 rev_row = {
-                                    "Tipe_Pulp": str(row['Tipe_Pulp']),
-                                    "Batch": str(row['Batch']),
-                                    "Desc": str(row['Desc']),
-                                    "Kode_Bahan": str(row['Kode_Bahan']),
-                                    "Kg_Terpakai": -float(row['Kg_Terpakai']),
-                                    "Bale_Terpakai": -int(row['Bale_Terpakai']),
-                                    "No_PRO": str(rev_no_pro),
-                                    "Customer": str(hist_pro['Customer'].iloc[0] if 'Customer' in hist_pro.columns else "Unknown"),
-                                    "Kode_PEFC": str(hist_pro['Kode_PEFC'].iloc[0])
+                                    "Tipe_Pulp": str(row['Tipe_Pulp']), "Batch": str(row['Batch']), "Desc": str(row['Desc']), "Kode_Bahan": str(row['Kode_Bahan']),
+                                    "Kg_Terpakai": -float(row['Kg_Terpakai']), "Bale_Terpakai": -int(row['Bale_Terpakai']),
+                                    "No_PRO": str(rev_no_pro), "Customer": str(hist_pro['Customer'].iloc[0] if 'Customer' in hist_pro.columns else "Unknown"), "Kode_PEFC": str(hist_pro['Kode_PEFC'].iloc[0])
                                 }
                                 detail_reversals.append(rev_row)
-                                
                         save_stock_gspread(df_stok_master)
                         if detail_reversals:
                             append_log_gspread_strict(SHEET_DETAIL, detail_reversals)
-                            
                         customer_lama = hist_pro['Customer'].iloc[0] if 'Customer' in hist_pro.columns else "Unknown"
                         kode_pefc_lama = hist_pro['Kode_PEFC'].iloc[0]
                         log_reversal = [{
@@ -479,7 +467,6 @@ with tab_revisi:
 # ----------------- TAB 4: TERIMA STOK -----------------
 with tab_stok_masuk:
     st.header("📦 Kedatangan Bahan Baku Baru (Online)")
-    
     st.subheader("1. Input Manual (Satu Per Satu)")
     with st.form("form_tambah_stok_online"):
         col1, col2 = st.columns(2)
@@ -494,9 +481,7 @@ with tab_stok_masuk:
             in_bal = st.number_input("Total Bale", min_value=0, step=1)
             in_claim_bb = st.selectbox("Claim Bahan Baku", ["PEFC Certified", "Controlled Source", "FSC 100%", "FSC Mix Credit"])
             in_eudr = st.selectbox("Status EUDR", ["Bukan EUDR", "EUDR"])
-            
         btn_submit_stok = st.form_submit_button("💾 Simpan Stok ke Google Sheets", type="primary")
-        
         if btn_submit_stok and in_batch != "" and in_kg > 0:
             with st.spinner("⏳ Menyimpan data stok baru ke Google Sheets..."):
                 try:
@@ -517,11 +502,9 @@ with tab_stok_masuk:
                     st.error(f"❌ Gagal: {e}")
 
     st.markdown("---")
-    
     st.subheader("2. Upload Massal (Banyak Data Sekaligus)")
     st.info("💡 Pastikan file Excel Anda memiliki urutan dan penamaan judul kolom yang sama persis dengan master stok di Google Sheets.")
     file_upload = st.file_uploader("Upload File Excel (.xlsx)", type=["xlsx"])
-    
     if file_upload is not None:
         if st.button("🚀 Proses Upload Massal ke Google Sheets", type="primary"):
             with st.spinner("⏳ Membaca file Excel & mengirim data masal ke Google Sheets..."):
@@ -542,7 +525,6 @@ with tab_dashboard:
         df_dashboard['Quantity (kg)'] = pd.to_numeric(df_dashboard['Quantity (kg)'], errors='coerce').fillna(0)
         df_dashboard['Qty BAL'] = pd.to_numeric(df_dashboard['Qty BAL'], errors='coerce').fillna(0)
         df_aktif = df_dashboard[df_dashboard['Quantity (kg)'] > 0].copy()
-        
         def get_kategori(row):
             tipe = str(row['Material type']).strip() if pd.notna(row['Material type']) else 'UNKNOWN'
             claim = str(row['Claim BB']).strip() if pd.notna(row['Claim BB']) else 'No Claim'
@@ -550,18 +532,43 @@ with tab_dashboard:
             label = f"{tipe} - {claim}"
             if eudr == 'EUDR': label += " (EUDR)"
             return label
-            
         df_aktif['Kategori_Pulp'] = df_aktif.apply(get_kategori, axis=1)
         rekap_stok = df_aktif.groupby('Kategori_Pulp')[['Quantity (kg)', 'Qty BAL']].sum().reset_index()
         rekap_stok['Quantity (kg)'] = rekap_stok['Quantity (kg)'].apply(lambda x: f"{x:,.2f} Kg")
         rekap_stok['Qty BAL'] = rekap_stok['Qty BAL'].apply(lambda x: f"{int(x):,} Bal")
         st.dataframe(rekap_stok, use_container_width=True, hide_index=True)
 
-# ----------------- TAB 6: ADMIN & RESET (DIPERBAIKI) -----------------
+# ----------------- TAB 6: ADMIN & RESET (DIPERBAIKI DENGAN AUTO-BACKUP) -----------------
 with tab_admin:
     st.header("⚙️ Pengaturan & Reset (Online Google Sheets)")
     st.warning("Halaman ini mereset log transaksi online. Master stok Google Sheets TIDAK akan dihapus.")
-    konfirmasi_reset = st.checkbox("Saya yakin ingin mereset log transaksi online.")
+
+    st.subheader("Langkah 1: Amankan Data (Backup)")
+    st.info("Sangat disarankan untuk mendownload data riwayat saat ini sebelum Anda menghapusnya permanen.")
+    
+    df_log_utama_backup = get_all_log_gspread(SHEET_LOG)
+    df_log_detail_backup = get_all_log_gspread(SHEET_DETAIL)
+    
+    if not df_log_utama_backup.empty or not df_log_detail_backup.empty:
+        output_backup = io.BytesIO()
+        with pd.ExcelWriter(output_backup, engine='openpyxl') as writer:
+            if not df_log_utama_backup.empty: df_log_utama_backup.to_excel(writer, index=False, sheet_name='Summary_PRO')
+            if not df_log_detail_backup.empty: df_log_detail_backup.to_excel(writer, index=False, sheet_name='Detail_Bahan_Baku')
+        output_backup.seek(0)
+        st.download_button(
+            label="📥 Download File Backup Sekarang",
+            data=output_backup,
+            file_name=f"Backup_Sebelum_Reset_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    else:
+        st.success("Log transaksi saat ini sudah kosong. Tidak ada data yang perlu dibackup.")
+
+    st.markdown("---")
+    
+    st.subheader("Langkah 2: Eksekusi Reset")
+    konfirmasi_reset = st.checkbox("Saya sudah mendownload backup & yakin ingin mereset log transaksi online.")
+    
     if st.button("🚨 Eksekusi Reset Log Online", type="primary"):
         with st.spinner("⏳ Mengosongkan log transaksi & menata ulang judul kolom..."):
             if not konfirmasi_reset:
@@ -570,12 +577,10 @@ with tab_admin:
                 try:
                     client = get_gsheet_client()
                     if client:
-                        # Kosongkan lalu tulis ulang header SHEET LOG
                         sheet_log = client.open(SHEET_LOG).sheet1
                         sheet_log.clear()
                         sheet_log.append_row(["No_PRO", "Tanggal", "Requester", "Customer", "Kode_PEFC", "Tonase"])
                         
-                        # Kosongkan lalu tulis ulang header SHEET DETAIL
                         sheet_detail = client.open(SHEET_DETAIL).sheet1
                         sheet_detail.clear()
                         sheet_detail.append_row(["Tipe_Pulp", "Batch", "Desc", "Kode_Bahan", "Kg_Terpakai", "Bale_Terpakai", "No_PRO", "Customer", "Kode_PEFC"])
